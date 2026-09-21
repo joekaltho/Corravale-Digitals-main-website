@@ -1,6 +1,14 @@
-// --- CONTACT FORM CONFIGURATION ---
-// Form submissions are handled securely by FormSubmit.
-const FORM_ENDPOINT = 'https://formsubmit.co/ajax/corravaledigital@gmail.com';
+// --- SUPABASE CONFIGURATION ---
+const SUPABASE_URL = 'https://ffjjyckrdmksulvcmiyc.supabase.co';
+const SUPABASE_ANON_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZmamp5Y2tyZG1rc3VsdmNtaXljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MjA2ODQsImV4cCI6MjEwMzM5NjY4NH0.iQMTPWzjPdvnzVsv3dQhE9BJI2UvTQh0aAu145uGxKU';
+const RESEND_API_KEY = '';
+const NOTIFICATION_EMAIL = 'corravaledigital@gmail.com';
+
+const supabaseClient =
+  typeof window !== 'undefined' && window.supabase
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    : null;
 
 // --- UI AND ANIMATIONS ---
 const nav = document.getElementById('nav');
@@ -41,18 +49,20 @@ if (saved === 'dark' || (!saved && matchMedia('(prefers-color-scheme: dark)').ma
   document.body.classList.add('dark');
 }
 
-theme.addEventListener('click', () => {
-  document.body.classList.toggle('dark');
+if (theme) {
+  theme.setAttribute('aria-pressed', String(document.body.classList.contains('dark')));
 
-  try {
-    localStorage.setItem(
-      'corravale-theme',
-      document.body.classList.contains('dark') ? 'dark' : 'light'
-    );
-  } catch (error) {
-    // ignore storage access errors
-  }
-});
+  theme.addEventListener('click', () => {
+    const isDark = document.body.classList.toggle('dark');
+    theme.setAttribute('aria-pressed', String(isDark));
+
+    try {
+      localStorage.setItem('corravale-theme', isDark ? 'dark' : 'light');
+    } catch (error) {
+      // ignore storage access errors
+    }
+  });
+}
 
 const faqItems = document.querySelectorAll('.faq-item');
 faqItems.forEach((item) => {
@@ -255,7 +265,7 @@ function showToast(message, type = 'success') {
   }, 4000);
 }
 
-// --- CONTACT FORM SUBMISSION & VALIDATION ---
+// --- SUPABASE FORM SUBMISSION & VALIDATION ---
 const contactForm = document.getElementById('contactForm');
 const submitBtn = document.getElementById('submitBtn');
 
@@ -263,15 +273,24 @@ if (contactForm) {
   contactForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
+    if (!supabaseClient) {
+      showToast('Form submission is unavailable right now. Please try again later.', 'error');
+      return;
+    }
+
+    // 1. Honeypot check (If filled, a bot filled it out)
     const honeypot = document.getElementById('website_hp')?.value;
     if (honeypot) {
+      // Fake success for bots, halt database entry
       showToast('Thank you! Your message has been sent.', 'success');
       contactForm.reset();
       return;
     }
 
+    // 2. Input extraction & validation
     const emailInput = document.getElementById('contactEmail');
     const messageInput = document.getElementById('contactMessage');
+
     const email = emailInput.value.trim();
     const message = messageInput.value.trim();
 
@@ -309,38 +328,56 @@ if (contactForm) {
       return;
     }
 
+    // 3. UI Loading State
     if (submitBtn) {
       submitBtn.innerText = 'Sending...';
       submitBtn.disabled = true;
     }
 
-    try {
-      const formData = new URLSearchParams();
-      formData.append('email', email);
-      formData.append('message', message);
-      formData.append('_subject', 'New Project Brief — Corravale Digital');
-      formData.append('_template', 'table');
-      formData.append('_captcha', 'false');
-      formData.append('_honey', '');
+    // 4. Submit to Supabase
+    const { data, error } = await supabaseClient
+      .from('Leads')
+      .insert([{ email: email, message: message }]);
 
-      const response = await fetch(FORM_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: formData.toString(),
-      });
+    if (error) {
+      showToast('Submission failed: ' + error.message, 'error');
+    } else {
+      try {
+        const response = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${RESEND_API_KEY}`,
+          },
+          body: JSON.stringify({
+            from: 'Corravale Leads <onboarding@resend.dev>',
+            to: [NOTIFICATION_EMAIL],
+            subject: 'New Project Brief Submitted',
+            html: `
+              <h2>New Lead from Corravale Website</h2>
+              <p><strong>Client Email:</strong> ${email}</p>
+              <p><strong>Message / Brief:</strong></p>
+              <p style="background: #f4f4f4; padding: 12px; border-radius: 8px;">${message}</p>
+            `,
+          }),
+        });
 
-      if (!response.ok) throw new Error('Form submission failed');
-
-      showToast('Thank you! Your message has been sent to Corravale Digital.', 'success');
-      contactForm.reset();
-    } catch (error) {
-      console.error('Contact form error:', error);
-      showToast('Something went wrong. Please try again or email us directly.', 'error');
-    } finally {
-      if (submitBtn) {
-        submitBtn.innerText = 'Start the conversation ↗';
-        submitBtn.disabled = false;
+        showToast(
+          response.ok
+            ? 'Thank you! Your message has been sent to Corravale Digital.'
+            : 'Brief saved! We will get back to you shortly.',
+          'success'
+        );
+      } catch (error) {
+        showToast('Brief saved to database!', 'success');
       }
+
+      contactForm.reset();
+    }
+
+    if (submitBtn) {
+      submitBtn.innerText = 'Start the conversation ↗';
+      submitBtn.disabled = false;
     }
   });
 }

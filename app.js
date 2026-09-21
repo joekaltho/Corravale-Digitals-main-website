@@ -13,11 +13,13 @@ const supabaseClient =
 // --- UI AND ANIMATIONS ---
 const nav = document.getElementById('nav');
 
-window.addEventListener(
-  'scroll',
-  () => nav.classList.toggle('scrolled', window.scrollY > 12),
-  { passive: true }
-);
+if (nav) {
+  window.addEventListener(
+    'scroll',
+    () => nav.classList.toggle('scrolled', window.scrollY > 12),
+    { passive: true }
+  );
+}
 
 const menuBtn = document.getElementById('menuBtn');
 const mobileMenu = document.getElementById('mobileMenu');
